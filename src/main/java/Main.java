@@ -49,10 +49,8 @@ public class Main {
             
             while((bytesRead = in.read(buffer)) != -1){
                 String input = new String(buffer,0, bytesRead);
-                if(input.equalsIgnoreCase("PING")){
-                    out.write("+PONG\r\n".getBytes());
-                    out.flush();
-                }
+                out.write("+PONG\r\n".getBytes());
+                out.flush();
             }
         } catch (IOException e) {
             System.out.println("Error : "+ e.getMessage());
