@@ -83,8 +83,8 @@ public class RedisParser {
         int cr = input.read();
         int lf =input.read();
 
-        if(cr !='\r' || lf !='\n')
-            throw new IOException("Expected CRLF after bulk string, got: " + (char) cr + (char) lf);
+//        if(cr !='\r' || lf !='\n')
+//            throw new IOException("Expected CRLF after bulk string, got: " + (char) cr + (char) lf);
 
         return new BulkString(value);
 
