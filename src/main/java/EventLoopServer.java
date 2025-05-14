@@ -97,7 +97,7 @@ public class EventLoopServer {
 
         if(response != null) {
             String serverResponse = RedisSerializer.serialize(response);
-            serverResponse = serverResponse.replace("\r\n", "\\r\\n");
+            //serverResponse = serverResponse.replace("\r\n", "\\r\\n");
             System.out.println("Server response "+ serverResponse);
             buffer.clear();
             buffer.put(serverResponse.getBytes());
