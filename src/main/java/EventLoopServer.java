@@ -1,17 +1,18 @@
-import objects.BulkString;
 import objects.RedisObject;
-import objects.SimpleString;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.*;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.Set;
 
 public class EventLoopServer {
-    private static int BUFFER_SIZE = 1024;
-    private static int PORT = 6379;
+    private static final int BUFFER_SIZE = 1024;
+    private static final int PORT = 6379;
 
     public static void main(String[] args) throws IOException {
         System.out.println("Event Loop started");

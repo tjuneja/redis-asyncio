@@ -9,16 +9,14 @@ import java.util.List;
 public class RedisCommandHandler {
 
     public static RedisObject executeCommand(RedisObject parsedCommand) throws IOException {
-        if(!(parsedCommand instanceof Array)) throw new IOException("Command should be an array");
+        if(!(parsedCommand instanceof Array commands)) throw new IOException("Command should be an array");
 
-        Array commands = (Array) parsedCommand;
         List<RedisObject> redisObjects = commands.getElements();
 
         if(redisObjects == null || redisObjects.isEmpty()) throw new IOException("Empty command");
 
-        if(!(redisObjects.get(0) instanceof BulkString)) throw new IOException("First input should be a command");
+        if(!(redisObjects.get(0) instanceof BulkString commandName)) throw new IOException("First input should be a command");
 
-        BulkString commandName = (BulkString) redisObjects.get(0);
         String command = commandName.getValueAsString().toUpperCase();
 
         switch (command){

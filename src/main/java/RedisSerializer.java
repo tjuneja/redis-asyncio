@@ -14,17 +14,14 @@ public class RedisSerializer {
     }
 
     private static void appendObjects(StringBuilder sb, RedisObject obj) {
-        if(obj instanceof SimpleString){
-            SimpleString ss = (SimpleString) obj;
+        if(obj instanceof SimpleString ss){
             sb.append('+').append(ss.getValue()).append("\r\n");
         } else if (obj instanceof Error) {
             Error e = (Error) obj;
             sb.append("-").append(e.getValue()).append("\r\n");
-        } else if (obj instanceof Integer) {
-            Integer i = (Integer) obj;
+        } else if (obj instanceof Integer i) {
             sb.append(":").append(i.getValue()).append("\r\n");
-        }else if(obj instanceof BulkString){
-            BulkString bs = (BulkString) obj;
+        }else if(obj instanceof BulkString bs){
             if(bs.isNull()){
                 sb.append("-1\r\n");
             }else{
@@ -32,8 +29,7 @@ public class RedisSerializer {
                 sb.append("$").append(data.length).append("\r\n");
                 sb.append(new String(data, StandardCharsets.UTF_8)).append("\r\n");
             }
-        }else if(obj instanceof Array){
-            Array arr= (Array) obj;
+        }else if(obj instanceof Array arr){
 
             if(arr.isNull()) sb.append("*-1\r\n");
             else{
