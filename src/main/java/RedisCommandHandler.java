@@ -27,9 +27,9 @@ public class RedisCommandHandler {
                     throw new IOException("ECHO requires an argument");
                 return redisObjects.get(1);
             case "SET":
-                handleSet(redisObjects);
+                return handleSet(redisObjects);
             case "GET":
-                handleGet(redisObjects);
+                return handleGet(redisObjects);
 
             default:
                 throw new IOException("Unsupported command");
@@ -51,7 +51,7 @@ public class RedisCommandHandler {
 
     }
 
-    private static void handleSet(List<RedisObject> redisObjects) throws IOException {
+    private static RedisObject handleSet(List<RedisObject> redisObjects) throws IOException {
         if (redisObjects.size() <3)
             throw new IOException("Wrong number of arguments for set command");
 
@@ -63,6 +63,8 @@ public class RedisCommandHandler {
         byte[] value = ((BulkString) redisObjects.get(2)).getValue();
 
         RedisStore.set(key, value);
+
+        return new SimpleString("OK");
     }
 
 
