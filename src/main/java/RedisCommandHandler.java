@@ -62,8 +62,12 @@ public class RedisCommandHandler {
         String key = ((BulkString) redisObjects.get(1)).getValueAsString();
         byte[] value = ((BulkString) redisObjects.get(2)).getValue();
 
-        RedisStore.set(key, value);
-
+        if(redisObjects.size() >3){
+            String expiryValue = ((BulkString)redisObjects.get(4)).getValueAsString();
+            RedisStore.set(key,value, Long.parseLong(expiryValue));
+        }else{
+            RedisStore.set(key, value);
+        }
         return new SimpleString("OK");
     }
 

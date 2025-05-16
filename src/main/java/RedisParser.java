@@ -137,22 +137,24 @@ public class RedisParser {
             String pingCommand = "*1\r\n$4\r\nPING\r\n";
             Array obj = (Array) parse(pingCommand);
             System.out.println("Parsed: " + obj.getElements());
+            String setCommand = "*5\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n$2\r\npx\r\n:100\r\n";
+
 
             // Parse a more complex command like SET key value
-            String setCommand = "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
+            //String setCommand = "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
             System.out.println("Parsed: " + parse(setCommand));
 //
 //            // Parse an integer response
-            String intResponse = ":1000\r\n";
-            System.out.println("Parsed: " + parse(intResponse));
+//            String intResponse = ":1000\r\n";
+//            System.out.println("Parsed: " + parse(intResponse));
+////
+////            // Parse an error response
+//            String errorResponse = "-ERR unknown command 'foobar'\r\n";
+//            System.out.println("Parsed: " + parse(errorResponse));
 //
-//            // Parse an error response
-            String errorResponse = "-ERR unknown command 'foobar'\r\n";
-            System.out.println("Parsed: " + parse(errorResponse));
-
-//            // Parse a null bulk string
-            String nullBulkString = "$-1\r\n";
-            System.out.println("Parsed: " + parse(nullBulkString));
+////            // Parse a null bulk string
+//            String nullBulkString = "$-1\r\n";
+//            System.out.println("Parsed: " + parse(nullBulkString));
 
         } catch (IOException e) {
             e.printStackTrace();
