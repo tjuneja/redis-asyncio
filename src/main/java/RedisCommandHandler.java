@@ -38,7 +38,7 @@ public class RedisCommandHandler {
     }
 
     private static RedisObject handleGet(List<RedisObject> redisObjects) throws IOException {
-        if(redisObjects.size() != 2) throw new IOException(" Wrong number of arguments");
+//        if(redisObjects.size() != 2) throw new IOException(" Wrong number of arguments");
 
         if(!(redisObjects.get(1) instanceof BulkString)){
             throw new IOException("Key should be a string");
