@@ -24,7 +24,7 @@ public class RedisStore {
     public static void set(String key, byte[] value, long expiresAt){
         dataStore.put(key, value);
 
-        if(expiresAt > 0) expirationTimes.put(key, expiresAt);
+        if(expiresAt > 0) expirationTimes.put(key, System.currentTimeMillis() + expiresAt);
         else expirationTimes.remove(key);
     }
 
