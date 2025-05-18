@@ -45,7 +45,11 @@ public class RedisCommandHandler {
         }
         BulkString key = (BulkString) redisObjects.get(1);
         byte[] value = RedisStore.get(key.getValueAsString());
-        if(value == null) return new BulkString(null);
+        if(value == null)
+        {
+            System.out.println("Returning null value");
+            return new BulkString(null);
+        }
 
         return new BulkString(value);
 
