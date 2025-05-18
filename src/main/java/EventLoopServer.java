@@ -16,9 +16,11 @@ public class EventLoopServer {
 
     public static void main(String[] args) throws IOException {
         System.out.println("Event Loop started");
+        int port = args.length> 0 ?Integer.parseInt(args[1]): PORT;
+
         //Create a server socket channel
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
-        serverChannel.socket().bind(new InetSocketAddress(PORT));
+        serverChannel.socket().bind(new InetSocketAddress(port));
         serverChannel.socket().setReuseAddress(true);
         serverChannel.configureBlocking(false);
 
