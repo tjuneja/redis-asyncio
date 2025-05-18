@@ -23,7 +23,7 @@ public class RedisSerializer {
             sb.append(":").append(i.getValue()).append("\r\n");
         }else if(obj instanceof BulkString bs){
             if(bs.isNull()){
-                sb.append("-1\r\n");
+                sb.append("$-1\r\n");
             }else{
                 byte[] data = bs.getValue();
                 sb.append("$").append(data.length).append("\r\n");
