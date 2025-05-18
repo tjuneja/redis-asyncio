@@ -64,6 +64,8 @@ public class RedisCommandHandler {
 
         if(redisObjects.size() >3){
             String expiryValue = ((BulkString)redisObjects.get(4)).getValueAsString();
+
+            System.out.println("Expiry value : "+expiryValue);
             RedisStore.set(key,value, Long.parseLong(expiryValue));
         }else{
             RedisStore.set(key, value);
