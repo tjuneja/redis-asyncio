@@ -41,7 +41,13 @@ public class RedisCommandHandler {
     private static RedisObject handleInfo(List<RedisObject> redisObjects) throws IOException {
         String value = ((BulkString) redisObjects.get(1)).getValueAsString();
         if(value.equalsIgnoreCase("replication")){
-            return new BulkString(RedisServerState.getStatus().getBytes());
+            if(RedisServerState.isLeader()){
+                StringBuilder sb = new StringBuilder().append(RedisServerState.getStatus()).append("\n")
+                        .append("master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb")
+                        .append("master_repl_offset:0");
+                return new BulkString(sb.toString().getBytes());
+            }else
+                return new BulkString(RedisServerState.getStatus().getBytes());
         }else{
             return new BulkString(null);
         }
