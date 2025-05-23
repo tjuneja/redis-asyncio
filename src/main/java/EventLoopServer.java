@@ -13,10 +13,24 @@ import java.util.Set;
 public class EventLoopServer {
     private static final int BUFFER_SIZE = 1024;
     private static final int PORT = 6379;
+    private static final boolean IS_MASTER = true;
 
     public static void main(String[] args) throws IOException {
         System.out.println("Event Loop started");
-        int port = args.length> 0 ?Integer.parseInt(args[1]): PORT;
+        int port = PORT;
+        RedisServerState.becomeLeader();
+        if(args.length > 0) {
+
+            if((args.length > 2) && args[2].contains("--replicaof")){
+             port = Integer.parseInt(args[1]);
+             RedisServerState.becomeFollower();
+
+            }else{
+                port = Integer.parseInt(args[1]);
+                RedisServerState.becomeLeader();
+            }
+        }
+        System.out.println("Starting a server at port : "+ port + "Role : "+RedisServerState.getStatus());
 
         //Create a server socket channel
         ServerSocketChannel serverChannel = ServerSocketChannel.open();

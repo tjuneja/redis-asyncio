@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.util.List;
 
 public class RedisCommandHandler {
-    private static final String MASTER = "role:master";
     public static RedisObject executeCommand(RedisObject parsedCommand) throws IOException {
         if(!(parsedCommand instanceof Array commands)) throw new IOException("Command should be an array");
 
@@ -42,7 +41,7 @@ public class RedisCommandHandler {
     private static RedisObject handleInfo(List<RedisObject> redisObjects) throws IOException {
         String value = ((BulkString) redisObjects.get(1)).getValueAsString();
         if(value.equalsIgnoreCase("replication")){
-            return new BulkString(MASTER.getBytes());
+            return new BulkString(RedisServerState.getStatus().getBytes());
         }else{
             return new BulkString(null);
         }

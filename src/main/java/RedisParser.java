@@ -138,11 +138,11 @@ public class RedisParser {
             Array obj = (Array) parse(pingCommand);
             System.out.println("Parsed: " + obj.getElements());
             String setCommand = "*5\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n$2\r\npx\r\n:100\r\n";
-
+            String getCommand = "*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n";
 
             // Parse a more complex command like SET key value
             //String setCommand = "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
-            System.out.println("Parsed: " + parse(setCommand));
+            System.out.println("Parsed: " + parse(getCommand));
 //
 //            // Parse an integer response
 //            String intResponse = ":1000\r\n";
