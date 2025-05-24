@@ -1,3 +1,5 @@
+import objects.Array;
+import objects.BulkString;
 import objects.RedisObject;
 
 import java.io.IOException;
@@ -7,6 +9,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Set;
 
@@ -30,7 +33,12 @@ public class EventLoopServer {
                 RedisServerState.becomeLeader();
             }
         }
-        System.out.println("Starting a server at port : "+ port + "Role : "+RedisServerState.getStatus());
+        CommandParser commandParser = new CommandParser(args);
+        System.out.println("Is Replica " + commandParser.isReplica());
+        if(commandParser.isReplica()){
+            connectToMaster(commandParser.getMasterHost(), commandParser.getMasterPort());
+        }
+        System.out.println("Starting a server at port : "+ port + " Role : "+RedisServerState.getStatus());
 
         //Create a server socket channel
         ServerSocketChannel serverChannel = ServerSocketChannel.open();
@@ -70,6 +78,20 @@ public class EventLoopServer {
 
 
         }
+    }
+
+    private static void connectToMaster(String host, int port) throws IOException {
+
+        System.out.println("Sending ping to master");
+
+        SocketChannel socketChannel = SocketChannel.open();
+        socketChannel.connect(new InetSocketAddress(host, port));
+
+
+        String pingCommand = RedisSerializer.serialize(new Array(Arrays.asList(new BulkString("PING".getBytes()))));
+        ByteBuffer byteBuffer = ByteBuffer.wrap(pingCommand.getBytes());
+        socketChannel.write(byteBuffer);
+        System.out.printf("Sent ping to master on host: %s, port: %d%n", host, port);
     }
 
     private static void handleAccept(Selector selector, SelectionKey key) throws IOException {
