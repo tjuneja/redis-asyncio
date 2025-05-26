@@ -11,6 +11,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 public class EventLoopServer {
@@ -36,7 +37,7 @@ public class EventLoopServer {
         CommandParser commandParser = new CommandParser(args);
         System.out.println("Is Replica " + commandParser.isReplica());
         if(commandParser.isReplica()){
-            connectToMaster(commandParser.getMasterHost(), commandParser.getMasterPort());
+            connectToMaster(commandParser.getMasterHost(), commandParser.getMasterPort(), commandParser.getPort());
         }
         System.out.println("Starting a server at port : "+ port + " Role : "+RedisServerState.getStatus());
 
@@ -80,18 +81,49 @@ public class EventLoopServer {
         }
     }
 
-    private static void connectToMaster(String host, int port) throws IOException {
+    private static void connectToMaster(String masterHost, int port, int currentServerPort) throws IOException {
 
         System.out.println("Sending ping to master");
 
         SocketChannel socketChannel = SocketChannel.open();
-        socketChannel.connect(new InetSocketAddress(host, port));
+        socketChannel.connect(new InetSocketAddress(masterHost, port));
 
 
-        String pingCommand = RedisSerializer.serialize(new Array(Arrays.asList(new BulkString("PING".getBytes()))));
+        sendPingToMasterServer(socketChannel);
+        sendReplConf(socketChannel, currentServerPort);
+        System.out.printf("Sent ping to master on masterHost: %s, port: %d%n", masterHost, port);
+    }
+
+    private static void sendReplConf(SocketChannel socketChannel, int port) throws IOException {
+        List<RedisObject> messageObjects = Arrays.asList(new BulkString("REPLCONF".getBytes())
+                                            , new BulkString("listening-port".getBytes())
+                                            , new BulkString(String.valueOf(port).getBytes()));
+        Array messageArray = new Array(messageObjects);
+        String replConfMessage = RedisSerializer.serialize(messageArray);
+        ByteBuffer byteBuffer = ByteBuffer.wrap(replConfMessage.getBytes());
+        socketChannel.write(byteBuffer);
+
+
+
+        messageObjects = Arrays.asList(new BulkString("REPLCONF".getBytes())
+                , new BulkString("capa".getBytes())
+                , new BulkString("psync2".getBytes()));
+        messageArray = new Array(messageObjects);
+        replConfMessage = RedisSerializer.serialize(messageArray);
+        byteBuffer = ByteBuffer.wrap(replConfMessage.getBytes());
+        socketChannel.write(byteBuffer);
+    }
+
+    private static void sendPingToMasterServer(SocketChannel socketChannel) throws IOException {
+        String pingCommand = RedisSerializer.serialize(new Array(List.of(new BulkString("PING".getBytes()))));
         ByteBuffer byteBuffer = ByteBuffer.wrap(pingCommand.getBytes());
         socketChannel.write(byteBuffer);
-        System.out.printf("Sent ping to master on host: %s, port: %d%n", host, port);
+
+        ByteBuffer responseBuffer = ByteBuffer.allocate(10240);
+        int bytesRead = socketChannel.read(responseBuffer);
+        String pingResponse = new String(responseBuffer.array(), 0, bytesRead);
+        System.out.println("Received response from master: " + pingResponse);
+        responseBuffer.clear();
     }
 
     private static void handleAccept(Selector selector, SelectionKey key) throws IOException {
