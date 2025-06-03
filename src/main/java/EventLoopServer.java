@@ -88,7 +88,6 @@ public class EventLoopServer {
         SocketChannel socketChannel = SocketChannel.open();
         socketChannel.connect(new InetSocketAddress(masterHost, port));
 
-
         sendPingToMasterServer(socketChannel);
         sendReplConf(socketChannel, currentServerPort);
         System.out.printf("Sent ping to master on masterHost: %s, port: %d%n", masterHost, port);
@@ -104,10 +103,20 @@ public class EventLoopServer {
         socketChannel.write(byteBuffer);
 
 
-
         messageObjects = Arrays.asList(new BulkString("REPLCONF".getBytes())
                 , new BulkString("capa".getBytes())
                 , new BulkString("psync2".getBytes()));
+        messageArray = new Array(messageObjects);
+        replConfMessage = RedisSerializer.serialize(messageArray);
+        byteBuffer = ByteBuffer.wrap(replConfMessage.getBytes());
+        socketChannel.write(byteBuffer);
+
+
+        receiveResponse(socketChannel);
+
+        messageObjects = Arrays.asList(new BulkString("PSYNC".getBytes())
+        , new BulkString("?".getBytes())
+        , new BulkString("-1".getBytes()));
         messageArray = new Array(messageObjects);
         replConfMessage = RedisSerializer.serialize(messageArray);
         byteBuffer = ByteBuffer.wrap(replConfMessage.getBytes());
@@ -119,6 +128,10 @@ public class EventLoopServer {
         ByteBuffer byteBuffer = ByteBuffer.wrap(pingCommand.getBytes());
         socketChannel.write(byteBuffer);
 
+        receiveResponse(socketChannel);
+    }
+
+    private static void receiveResponse(SocketChannel socketChannel) throws IOException {
         ByteBuffer responseBuffer = ByteBuffer.allocate(10240);
         int bytesRead = socketChannel.read(responseBuffer);
         String pingResponse = new String(responseBuffer.array(), 0, bytesRead);
