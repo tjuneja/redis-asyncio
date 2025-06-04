@@ -31,11 +31,22 @@ public class RedisCommandHandler {
                 return handleGet(redisObjects);
             case "INFO":
                 return handleInfo(redisObjects);
+            case "REPLCONF":
+                return handleReplConf(redisObjects);
 
             default:
                 throw new IOException("Unsupported command");
         }
 
+    }
+
+    private static RedisObject handleReplConf(List<RedisObject> redisObjects) {
+        String value = ((BulkString) redisObjects.get(0)).getValueAsString();
+        if(value.equalsIgnoreCase("replconf")){
+            return new BulkString("OK".getBytes());
+        }else{
+            return new BulkString(null);
+        }
     }
 
     private static RedisObject handleInfo(List<RedisObject> redisObjects) throws IOException {
