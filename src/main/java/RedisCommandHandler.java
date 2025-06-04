@@ -18,26 +18,37 @@ public class RedisCommandHandler {
 
         String command = commandName.getValueAsString().toUpperCase();
 
-        switch (command){
-            case "PING":
-                return new SimpleString("PONG");
-            case "ECHO":
-                if(redisObjects.size() < 2)
+        return switch (command) {
+            case "PING" -> new SimpleString("PONG");
+            case "ECHO" -> {
+                if (redisObjects.size() < 2)
                     throw new IOException("ECHO requires an argument");
-                return redisObjects.get(1);
-            case "SET":
-                return handleSet(redisObjects);
-            case "GET":
-                return handleGet(redisObjects);
-            case "INFO":
-                return handleInfo(redisObjects);
-            case "REPLCONF":
-                return handleReplConf(redisObjects);
+                yield redisObjects.get(1);
+            }
+            case "SET" -> handleSet(redisObjects);
+            case "GET" -> handleGet(redisObjects);
+            case "INFO" -> handleInfo(redisObjects);
+            case "REPLCONF" -> handleReplConf(redisObjects);
+            case "PSYNC" -> handlePsync(redisObjects);
+            default -> throw new IOException("Unsupported command");
+        };
 
-            default:
-                throw new IOException("Unsupported command");
+    }
+
+    private static RedisObject handlePsync(List<RedisObject> redisObjects) {
+        String value = ((BulkString) redisObjects.get(0)).getValueAsString();
+        if (value.equalsIgnoreCase("psync")) {
+            if (RedisServerState.isLeader()) {
+                StringBuilder sb = new StringBuilder()
+                        .append("FULLRESYNC ")
+                        .append("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb ")
+                        .append("0");
+                return new BulkString(sb.toString().getBytes());
+            } else {
+                return new BulkString(null);
+            }
         }
-
+        else return null;
     }
 
     private static RedisObject handleReplConf(List<RedisObject> redisObjects) {
