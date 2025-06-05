@@ -5,10 +5,11 @@ import java.util.List;
 public class Array implements RedisObject{
     private final List<RedisObject> elements;
 
+
+
     public Array(List<RedisObject> elements){
         this.elements = elements;
     }
-
     public List<RedisObject> getElements() {
         return elements;
     }

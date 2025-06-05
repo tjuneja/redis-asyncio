@@ -17,7 +17,6 @@ import java.util.Set;
 public class EventLoopServer {
     private static final int BUFFER_SIZE = 1024;
     private static final int PORT = 6379;
-    private static final boolean IS_MASTER = true;
 
     public static void main(String[] args) throws IOException {
         System.out.println("Event Loop started");
@@ -149,41 +148,99 @@ public class EventLoopServer {
         System.out.println("Accepted connection from : "+channel.getRemoteAddress());
     }
 
-    private static void handleRead(SelectionKey key) throws IOException{
-        /**
-         * Client channel retrieved from the key
-         * get buffer from the key.attachment()
-         * read from the client channel
-         * buffer.flip()
-         * read the buffer into array
-         * convert array to string
-         * Check input string
-         * Write response to buffer
-         */
-
+    private static void handleRead(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         ByteBuffer buffer = (ByteBuffer) key.attachment();
 
         buffer.clear();
-        clientChannel.read(buffer);
 
+        // This is the critical addition - check the return value!
+        int bytesRead = clientChannel.read(buffer);
+
+        // Handle different read scenarios
+        if (bytesRead == -1) {
+            // Client has closed the connection gracefully
+            System.out.println("Client disconnected: " + clientChannel.getRemoteAddress());
+            handleClientDisconnection(key);
+            return;
+        }
+
+        if (bytesRead == 0) {
+            // No data available right now in non-blocking mode
+            // This shouldn't happen often since we're only called when data is ready
+            System.out.println("No data available for reading");
+            return;
+        }
+
+        // We have actual data to process
         buffer.flip();
 
         byte[] data = new byte[buffer.remaining()];
         buffer.get(data);
         String input = new String(data).trim();
-        System.out.println("Input data received : "+ input);
+        System.out.println("Input data received : " + input);
 
-        RedisObject parsedCommand = RedisParser.parse(input);
-        RedisObject response = RedisCommandHandler.executeCommand(parsedCommand);
-        // Write the redis parser here
+        try {
+            RedisObject parsedCommand = RedisParser.parse(input);
+            CommandResponse response = RedisCommandHandler.executeCommand(parsedCommand);
 
-        if(response != null) {
-            String serverResponse = RedisSerializer.serialize(response);
-            //serverResponse = serverResponse.replace("\r\n", "\\r\\n");
-            System.out.println("Server response "+ serverResponse);
+            if(!response.isComplete() && response.isMultiPart()){
+                writeMultiPartServerResponse(key, response, buffer);
+            } else {
+                writeServerResponse(key, response.getStringResponse(), buffer);
+            }
+        } catch (IOException e) {
+            // Handle parsing errors gracefully
+            System.err.println("Error parsing command: " + e.getMessage());
+            String errorResponse = RedisSerializer.serialize(new objects.Error("ERR " + e.getMessage()));
+            writeServerResponse(key, errorResponse, buffer);
+        }
+    }
+
+    /**
+     * Properly clean up when a client disconnects
+     */
+    private static void handleClientDisconnection(SelectionKey key) throws IOException {
+        SocketChannel clientChannel = (SocketChannel) key.channel();
+
+        // Log the disconnection for debugging
+        System.out.println("Cleaning up disconnected client: " + clientChannel.getRemoteAddress());
+
+        // Cancel the key to remove it from the selector
+        key.cancel();
+
+        // Close the channel
+        clientChannel.close();
+
+        // Note: The buffer attached to this key will be garbage collected automatically
+    }
+
+    private static void writeMultiPartServerResponse(SelectionKey key, CommandResponse response, ByteBuffer buffer) throws IOException {
+        SocketChannel channel = (SocketChannel) key.channel();
+
+        for (CommandResponse.ResponsePart responsePart : response.getParts()) {
             buffer.clear();
-            buffer.put(serverResponse.getBytes());
+            buffer.put(responsePart.getData());
+            buffer.flip();
+
+            while (buffer.hasRemaining()){
+                channel.write(buffer);
+            }
+
+            System.out.printf("Sent %s part: %d bytes%n",
+                    responsePart.getType(), responsePart.getData().length);
+        }
+
+        buffer.clear();
+        key.interestOps(SelectionKey.OP_READ);
+    }
+
+    private static void writeServerResponse(SelectionKey key, String response, ByteBuffer buffer) {
+        if(response != null) {
+            //serverResponse = serverResponse.replace("\r\n", "\\r\\n");
+            System.out.println("Server response "+ response);
+            buffer.clear();
+            buffer.put(response.getBytes());
             buffer.flip();
 
             key.interestOps(SelectionKey.OP_WRITE);
