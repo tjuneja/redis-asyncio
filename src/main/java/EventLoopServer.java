@@ -153,60 +153,100 @@ public class EventLoopServer {
         ByteBuffer buffer = (ByteBuffer) key.attachment();
 
         buffer.clear();
-
         int bytesRead = clientChannel.read(buffer);
 
         if (bytesRead == -1) {
-            // Client has closed the connection gracefully
             System.out.println("Client disconnected: " + clientChannel.getRemoteAddress());
             handleClientDisconnection(key);
             return;
         }
 
         if (bytesRead == 0) {
-            // No data available right now in non-blocking mode
-            // This shouldn't happen often since we're only called when data is ready
             System.out.println("No data available for reading");
             return;
         }
 
-        // We have actual data to process
         buffer.flip();
-
         byte[] data = new byte[buffer.remaining()];
         buffer.get(data);
         String input = new String(data).trim();
-        System.out.println("Input data received : " + input);
+
+        // Enhanced debugging for command processing
+        System.out.println("=== COMMAND PROCESSING START ===");
+        System.out.println("From: " + clientChannel.getRemoteAddress());
+        System.out.println("Raw input: " + input);
 
         try {
             RedisObject parsedCommand = RedisParser.parse(input);
-            CommandResponse response ;
 
+            // Debug: Show what command was parsed
+            String commandName = extractCommandName(parsedCommand);
+            System.out.println("Parsed command: " + commandName);
+
+            // Debug: Show current connection type
             ConnectionManager.ConnectionType connectionType = ConnectionManager.getConnectionType(clientChannel);
-            if(isReplicationHandshake(parsedCommand,clientChannel)){
+            System.out.println("Connection type: " + connectionType);
+
+            CommandResponse response;
+
+            // Check if this is a replication handshake command
+            if(isReplicationHandshake(parsedCommand, clientChannel)){
+                System.out.println("Processing as REPLICATION HANDSHAKE command");
                 response = RedisCommandHandler.executeCommand(parsedCommand);
                 handleServerWrite(key, response, buffer);
+                System.out.println("=== COMMAND PROCESSING END (handshake) ===");
                 return;
             }
+
+            // Process based on connection type
             if(connectionType == ConnectionManager.ConnectionType.MASTER){
-                // Process silently
+                System.out.println("Processing command from MASTER (silent mode)");
                 response = RedisCommandHandler.executeCommand(parsedCommand);
-                System.out.println("Executing commands from the master");
-            }else{
+                System.out.println("Command executed silently, no response sent to master");
+                System.out.println("=== COMMAND PROCESSING END (from master) ===");
+                return; // Don't send response to master
+            } else {
+                System.out.println("Processing command from CLIENT");
                 response = RedisCommandHandler.executeCommand(parsedCommand);
 
+                // Check if we should propagate this command
                 if(RedisServerState.isLeader()){
+                    System.out.println("Server is leader - checking if command should be propagated");
                     CommandPropagator.propagateCommand(parsedCommand);
+                } else {
+                    System.out.println("Server is not leader - no propagation");
                 }
             }
 
             handleServerWrite(key, response, buffer);
+            System.out.println("=== COMMAND PROCESSING END (client response sent) ===");
+
         } catch (IOException e) {
-            // Handle parsing errors gracefully
             System.err.println("Error parsing command: " + e.getMessage());
             String errorResponse = RedisSerializer.serialize(new objects.Error("ERR " + e.getMessage()));
             writeServerResponse(key, errorResponse, buffer);
+            System.out.println("=== COMMAND PROCESSING END (error) ===");
         }
+    }
+
+    /**
+     * Helper method to extract command name for debugging
+     */
+    private static String extractCommandName(RedisObject parsedCommand) {
+        if(!(parsedCommand instanceof Array commands)) {
+            return "NOT_ARRAY";
+        }
+
+        List<RedisObject> elements = commands.getElements();
+        if(elements == null || elements.isEmpty()) {
+            return "EMPTY_ARRAY";
+        }
+
+        if(!(elements.get(0) instanceof BulkString firstCommand)) {
+            return "NOT_BULK_STRING";
+        }
+
+        return firstCommand.getValueAsString().toUpperCase();
     }
 
     private static void handleServerWrite(SelectionKey key, CommandResponse response, ByteBuffer buffer) throws IOException {
