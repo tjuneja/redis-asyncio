@@ -1,4 +1,9 @@
+import java.util.Queue;
+import java.util.concurrent.LinkedBlockingDeque;
+
 public class RedisServerState {
+
+    private static final Queue<String> replicaList = new LinkedBlockingDeque<>();
 
     private static volatile boolean isLeader = false;
     private static final String LEADER = "role:master";
@@ -40,5 +45,9 @@ public class RedisServerState {
 
     public static void setReplicaPort(int replicaPort) {
         RedisServerState.replicaPort = replicaPort;
+    }
+
+    public static void addReplica(String port){
+
     }
 }

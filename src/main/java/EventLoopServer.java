@@ -1,3 +1,4 @@
+import connection.ConnectionManager;
 import objects.Array;
 import objects.BulkString;
 import objects.RedisObject;
@@ -22,21 +23,17 @@ public class EventLoopServer {
         System.out.println("Event Loop started");
         int port = PORT;
         RedisServerState.becomeLeader();
-        if(args.length > 0) {
 
-            if((args.length > 2) && args[2].contains("--replicaof")){
-             port = Integer.parseInt(args[1]);
-             RedisServerState.becomeFollower();
 
-            }else{
-                port = Integer.parseInt(args[1]);
-                RedisServerState.becomeLeader();
-            }
-        }
         CommandParser commandParser = new CommandParser(args);
         System.out.println("Is Replica " + commandParser.isReplica());
         if(commandParser.isReplica()){
+            port = commandParser.getPort();
+            RedisServerState.becomeFollower();
             connectToMaster(commandParser.getMasterHost(), commandParser.getMasterPort(), commandParser.getPort());
+        }else if(args.length > 0){
+            port =Integer.parseInt(args[1]);
+            RedisServerState.becomeLeader();
         }
         System.out.println("Starting a server at port : "+ port + " Role : "+RedisServerState.getStatus());
 
@@ -143,6 +140,9 @@ public class EventLoopServer {
         SocketChannel channel = serverSocketChannel.accept();
         channel.configureBlocking(false);
 
+        ConnectionManager.registerClientConnection(channel);
+
+
         ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
         channel.register(selector, SelectionKey.OP_READ, buffer);
         System.out.println("Accepted connection from : "+channel.getRemoteAddress());
@@ -154,10 +154,8 @@ public class EventLoopServer {
 
         buffer.clear();
 
-        // This is the critical addition - check the return value!
         int bytesRead = clientChannel.read(buffer);
 
-        // Handle different read scenarios
         if (bytesRead == -1) {
             // Client has closed the connection gracefully
             System.out.println("Client disconnected: " + clientChannel.getRemoteAddress());
@@ -182,13 +180,27 @@ public class EventLoopServer {
 
         try {
             RedisObject parsedCommand = RedisParser.parse(input);
-            CommandResponse response = RedisCommandHandler.executeCommand(parsedCommand);
+            CommandResponse response ;
 
-            if(!response.isComplete() && response.isMultiPart()){
-                writeMultiPartServerResponse(key, response, buffer);
-            } else {
-                writeServerResponse(key, response.getStringResponse(), buffer);
+            ConnectionManager.ConnectionType connectionType = ConnectionManager.getConnectionType(clientChannel);
+            if(isReplicationHandshake(parsedCommand,clientChannel)){
+                response = RedisCommandHandler.executeCommand(parsedCommand);
+                handleServerWrite(key, response, buffer);
+                return;
             }
+            if(connectionType == ConnectionManager.ConnectionType.MASTER){
+                // Process silently
+                response = RedisCommandHandler.executeCommand(parsedCommand);
+                System.out.println("Executing commands from the master");
+            }else{
+                response = RedisCommandHandler.executeCommand(parsedCommand);
+
+                if(RedisServerState.isLeader()){
+                    CommandPropagator.propagateCommand(parsedCommand);
+                }
+            }
+
+            handleServerWrite(key, response, buffer);
         } catch (IOException e) {
             // Handle parsing errors gracefully
             System.err.println("Error parsing command: " + e.getMessage());
@@ -197,12 +209,52 @@ public class EventLoopServer {
         }
     }
 
+    private static void handleServerWrite(SelectionKey key, CommandResponse response, ByteBuffer buffer) throws IOException {
+        if(!response.isComplete() && response.isMultiPart()){
+            writeMultiPartServerResponse(key, response, buffer);
+        } else {
+            writeServerResponse(key, response.getStringResponse(), buffer);
+        }
+    }
+
+    private static boolean isReplicationHandshake(RedisObject parsedCommand, SocketChannel clientChannel){
+        if (!(parsedCommand instanceof Array commands)) {
+            return false;
+        }
+
+        List<RedisObject> elements = commands.getElements();
+        if (elements == null || elements.isEmpty()) {
+            return false;
+        }
+
+        if (!(elements.get(0) instanceof BulkString commandName)) {
+            return false;
+        }
+
+        String command = commandName.getValueAsString().toUpperCase();
+
+        if("REPLCONF".equals(command) || "PSYNC".equals(command)){
+            System.out.println("Handling replication command: " + command);
+
+            // Upgrade this connection to a replica connection
+            if (ConnectionManager.getConnectionType(clientChannel) == ConnectionManager.ConnectionType.CLIENT) {
+                ConnectionManager.removeConnection(clientChannel);
+                ConnectionManager.registerReplicaConnection(clientChannel);
+                System.out.println("Upgraded connection to replica type");
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
     /**
      * Properly clean up when a client disconnects
      */
     private static void handleClientDisconnection(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
-
+        ConnectionManager.removeConnection(clientChannel);
         // Log the disconnection for debugging
         System.out.println("Cleaning up disconnected client: " + clientChannel.getRemoteAddress());
 
@@ -212,7 +264,7 @@ public class EventLoopServer {
         // Close the channel
         clientChannel.close();
 
-        // Note: The buffer attached to this key will be garbage collected automatically
+        // The buffer attached to this key will be garbage collected automatically
     }
 
     private static void writeMultiPartServerResponse(SelectionKey key, CommandResponse response, ByteBuffer buffer) throws IOException {
