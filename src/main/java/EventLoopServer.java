@@ -10,27 +10,90 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class EventLoopServer {
     private static final int BUFFER_SIZE = 1024;
     private static final int PORT = 6379;
+    private static final Map<SocketChannel, ConnectionBuffer> streamingBuffers =
+            new ConcurrentHashMap<>();
+
+    public static class ConnectionBuffer{
+        StringBuilder accumulator = new StringBuilder();
+        SocketChannel channel;
+
+        public ConnectionBuffer(SocketChannel channel){
+            this.channel = channel;
+        }
+
+        public void appendData(String data){
+            this.accumulator.append(data);
+        }
+
+        public SocketChannel getChannel(){
+            return this.channel;
+        }
+
+        public String getAccumulatedData(){
+            return this.accumulator.toString();
+        }
+
+        public void consumeData(int charactersConsumed){
+            if(charactersConsumed >= accumulator.length()){
+                this.accumulator.setLength(0); // clear all
+            }else{
+                String remaining = this.accumulator.substring(charactersConsumed);
+                accumulator.setLength(0);
+                accumulator.append(remaining);
+            }
+        }
+
+        public boolean hasData() {
+            return !accumulator.isEmpty();
+        }
+    }
+
+    public static class RespParseResult {
+        private final String consumedData;
+        private final boolean complete;
+        private final int consumedLength;
+
+        public RespParseResult(boolean complete, String consumedData){
+            this.consumedData = consumedData;
+            this.complete = complete;
+            this.consumedLength = consumedData.length();
+        }
+
+
+        public String getConsumedData() {
+            return consumedData;
+        }
+
+        public int getConsumedLength() {
+            return consumedLength;
+        }
+
+        public boolean isComplete() {
+            return complete;
+        }
+    }
+
+
+
 
     public static void main(String[] args) throws IOException {
         System.out.println("Event Loop started");
         int port = PORT;
         RedisServerState.becomeLeader();
-
+        SocketChannel masterConnection = null;
 
         CommandParser commandParser = new CommandParser(args);
         System.out.println("Is Replica " + commandParser.isReplica());
         if(commandParser.isReplica()){
             port = commandParser.getPort();
             RedisServerState.becomeFollower();
-            connectToMaster(commandParser.getMasterHost(), commandParser.getMasterPort(), commandParser.getPort());
+            masterConnection = connectToMaster(commandParser.getMasterHost(), commandParser.getMasterPort(), commandParser.getPort());
         }else if(args.length > 0){
             port =Integer.parseInt(args[1]);
             RedisServerState.becomeLeader();
@@ -48,6 +111,12 @@ public class EventLoopServer {
         // Register with the selector
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
+        if(masterConnection != null){
+            ByteBuffer masterBuffer = ByteBuffer.allocate(BUFFER_SIZE);
+            masterConnection.register(selector, SelectionKey.OP_READ, masterBuffer);
+            System.out.println("Master connection registered with selector");
+        }
+
         //Event loop
         while(true){
             try{
@@ -55,10 +124,26 @@ public class EventLoopServer {
                 Set<SelectionKey> selectionKeys = selector.selectedKeys();
                 Iterator<SelectionKey> keyIterator = selectionKeys.iterator();
 
+                // In your main event loop, enhance the key processing
                 while(keyIterator.hasNext()){
                     SelectionKey key = keyIterator.next();
-
                     if(key != null) keyIterator.remove();
+
+                    SocketChannel channel = null;
+                    if (key.channel() instanceof SocketChannel) {
+                        channel = (SocketChannel) key.channel();
+                    }
+
+                    System.out.println("=== EVENT LOOP ITERATION ===");
+                    if (channel != null) {
+                        System.out.println("Channel: " + channel.getRemoteAddress());
+                        System.out.println("Channel open: " + channel.isOpen());
+                        System.out.println("Channel connected: " + channel.isConnected());
+                    }
+                    System.out.println("Key valid: " + key.isValid());
+                    System.out.println("Operations - Accept: " + key.isAcceptable() +
+                            ", Read: " + key.isReadable() +
+                            ", Write: " + key.isWritable());
 
                     if(key.isAcceptable()){
                         handleAccept(selector, key);
@@ -77,7 +162,7 @@ public class EventLoopServer {
         }
     }
 
-    private static void connectToMaster(String masterHost, int port, int currentServerPort) throws IOException {
+    private static SocketChannel connectToMaster(String masterHost, int port, int currentServerPort) throws IOException {
 
         System.out.println("Sending ping to master");
 
@@ -86,7 +171,10 @@ public class EventLoopServer {
 
         sendPingToMasterServer(socketChannel);
         sendReplConf(socketChannel, currentServerPort);
+        ConnectionManager.setMasterConnection(socketChannel);
+        socketChannel.configureBlocking(false);
         System.out.printf("Sent ping to master on masterHost: %s, port: %d%n", masterHost, port);
+        return socketChannel;
     }
 
     private static void sendReplConf(SocketChannel socketChannel, int port) throws IOException {
@@ -150,10 +238,18 @@ public class EventLoopServer {
 
     private static void handleRead(SelectionKey key) throws IOException {
         SocketChannel clientChannel = (SocketChannel) key.channel();
-        ByteBuffer buffer = (ByteBuffer) key.attachment();
+        ByteBuffer responseBuffer = (ByteBuffer)key.attachment();
 
-        buffer.clear();
-        int bytesRead = clientChannel.read(buffer);
+        if(responseBuffer == null){
+            responseBuffer = ByteBuffer.allocate(1024);
+            key.attach(responseBuffer);
+        }
+        responseBuffer.clear();
+
+        int bytesRead = clientChannel.read(responseBuffer);
+
+        ConnectionBuffer streamBuffer = streamingBuffers.computeIfAbsent(
+                clientChannel, ConnectionBuffer::new);
 
         if (bytesRead == -1) {
             System.out.println("Client disconnected: " + clientChannel.getRemoteAddress());
@@ -166,20 +262,139 @@ public class EventLoopServer {
             return;
         }
 
-        buffer.flip();
-        byte[] data = new byte[buffer.remaining()];
-        buffer.get(data);
-        String input = new String(data).trim();
+        responseBuffer.flip();
+        byte[] data = new byte[responseBuffer.remaining()];
+        responseBuffer.get(data);
+        String input = new String(data);
 
+        streamBuffer.appendData(input);
         // Enhanced debugging for command processing
         System.out.println("=== COMMAND PROCESSING START ===");
         System.out.println("From: " + clientChannel.getRemoteAddress());
         System.out.println("Raw input: " + input);
 
-        try {
-            RedisObject parsedCommand = RedisParser.parse(input);
+        parseAccumulatedCommand(key, streamBuffer, responseBuffer);
+    }
 
-            // Debug: Show what command was parsed
+
+    private static void parseAccumulatedCommand(SelectionKey key, ConnectionBuffer connectionBuffer, ByteBuffer responseBuffer) {
+        String accumulatedData = connectionBuffer.getAccumulatedData();
+        int totalConsumedData = 0;
+        int commandCount = 0;
+
+        System.out.println("=== PARSE ACCUMULATED COMMANDS START ===");
+        System.out.println("Total accumulated data: " + accumulatedData.length() + " characters");
+
+        // First, skip any non-array messages (handshake responses)
+        int arrayStart = findNextArrayStart(accumulatedData);
+        if (arrayStart > 0) {
+            String skippedData = accumulatedData.substring(0, Math.min(arrayStart, 100));
+            System.out.println("Skipping " + arrayStart + " characters of handshake data");
+            System.out.println("Handshake data preview: " + skippedData.replace("\r", "\\r").replace("\n", "\\n") + "...");
+
+            // Remove the handshake data from our buffer
+            connectionBuffer.consumeData(arrayStart);
+            accumulatedData = connectionBuffer.getAccumulatedData();
+
+            System.out.println("After skipping handshake: " + accumulatedData.length() + " characters remaining");
+        }
+
+        // Now process only array commands (commands that start with '*')
+        while (true) {
+            String remainingData = accumulatedData.substring(totalConsumedData);
+
+            if (remainingData.isEmpty()) {
+                System.out.println("No more data to process");
+                break;
+            }
+
+            // Additional safety check: ensure we're looking at an array command
+            if (!remainingData.startsWith("*")) {
+                System.out.println("Found non-array data after handshake skip - this shouldn't happen");
+                System.out.println("Problematic data: " + remainingData.substring(0, Math.min(50, remainingData.length())));
+
+                // Try to find the next array start and skip to it
+                int nextArrayStart = findNextArrayStart(remainingData);
+                if (nextArrayStart == remainingData.length()) {
+                    // No more arrays found, consume all remaining data
+                    totalConsumedData = accumulatedData.length();
+                    break;
+                } else {
+                    // Skip to the next array
+                    totalConsumedData += nextArrayStart;
+                    continue;
+                }
+            }
+
+            try {
+                // Parse one complete array command
+                RespParseResult parsedResult = parseOneRespCommand(remainingData);
+
+                if (!parsedResult.isComplete()) {
+                    System.out.println("Incomplete array command found - waiting for more data");
+                    System.out.println("Partial command: " + remainingData.substring(0, Math.min(50, remainingData.length())).replace("\r", "\\r").replace("\n", "\\n") + "...");
+                    break; // Wait for more data
+                }
+
+                commandCount++;
+                System.out.println("=== PROCESSING ARRAY COMMAND #" + commandCount + " ===");
+                System.out.println("Command data: " + parsedResult.getConsumedData().replace("\r", "\\r").replace("\n", "\\n"));
+
+                // Parse and execute this Redis command
+                RedisObject parsedCommand = RedisParser.parse(parsedResult.getConsumedData());
+                parseIndividualCommand(key, parsedCommand, connectionBuffer.getChannel(), responseBuffer);
+
+                totalConsumedData += parsedResult.getConsumedLength();
+
+            } catch (Exception e) {
+                System.err.println("Error parsing array command: " + e.getMessage());
+                System.err.println("Problematic data: " + remainingData.substring(0, Math.min(100, remainingData.length())));
+
+                // Skip this malformed data to prevent infinite loops
+                totalConsumedData = accumulatedData.length();
+                break;
+            }
+        }
+
+        // Remove all processed data from the buffer
+        connectionBuffer.consumeData(totalConsumedData);
+
+        System.out.println("=== BATCH PROCESSING COMPLETE ===");
+        System.out.println("Array commands processed: " + commandCount);
+        System.out.println("Data consumed: " + totalConsumedData + " characters");
+        System.out.println("Remaining in buffer: " + connectionBuffer.getAccumulatedData().length() + " characters");
+
+        if (connectionBuffer.hasData()) {
+            String remaining = connectionBuffer.getAccumulatedData();
+            System.out.println("Remaining data preview: " +
+                    remaining.substring(0, Math.min(50, remaining.length())).replace("\r", "\\r").replace("\n", "\\n") + "...");
+        }
+    }
+
+    /**
+     * Finds the position of the next array command (starting with '*') in the data.
+     * This helps us skip over handshake responses and focus only on propagated commands.
+     *
+     * @param data The accumulated data to search through
+     * @return The index of the first '*' character, or data.length() if no array found
+     */
+    private static int findNextArrayStart(String data) {
+        for (int i = 0; i < data.length(); i++) {
+            if (data.charAt(i) == '*') {
+                // Found the start of an array command
+                System.out.println("Found array start at position " + i);
+                return i;
+            }
+        }
+
+        // No array command found in the current data
+        System.out.println("No array commands found in current data");
+        return data.length(); // Return length to indicate "skip all current data"
+    }
+
+    private static void parseIndividualCommand(SelectionKey key, RedisObject parsedCommand, SocketChannel clientChannel, ByteBuffer buffer) {
+        try {
+
             String commandName = extractCommandName(parsedCommand);
             System.out.println("Parsed command: " + commandName);
 
@@ -204,7 +419,7 @@ public class EventLoopServer {
                 response = RedisCommandHandler.executeCommand(parsedCommand);
                 System.out.println("Command executed silently, no response sent to master");
                 System.out.println("=== COMMAND PROCESSING END (from master) ===");
-                return; // Don't send response to master
+                return;
             } else {
                 System.out.println("Processing command from CLIENT");
                 response = RedisCommandHandler.executeCommand(parsedCommand);
@@ -250,11 +465,18 @@ public class EventLoopServer {
     }
 
     private static void handleServerWrite(SelectionKey key, CommandResponse response, ByteBuffer buffer) throws IOException {
+        System.out.println("=== HANDLE SERVER WRITE ===");
+        System.out.println("Response complete: " + response.isComplete());
+        System.out.println("Response multipart: " + response.isMultiPart());
+
         if(!response.isComplete() && response.isMultiPart()){
+            System.out.println("Taking MULTI-PART path");
             writeMultiPartServerResponse(key, response, buffer);
         } else {
+            System.out.println("Taking SINGLE RESPONSE path");
             writeServerResponse(key, response.getStringResponse(), buffer);
         }
+        System.out.println("=== HANDLE SERVER WRITE COMPLETE ===");
     }
 
     private static boolean isReplicationHandshake(RedisObject parsedCommand, SocketChannel clientChannel){
@@ -297,7 +519,7 @@ public class EventLoopServer {
         ConnectionManager.removeConnection(clientChannel);
         // Log the disconnection for debugging
         System.out.println("Cleaning up disconnected client: " + clientChannel.getRemoteAddress());
-
+        streamingBuffers.remove(clientChannel);
         // Cancel the key to remove it from the selector
         key.cancel();
 
@@ -329,8 +551,19 @@ public class EventLoopServer {
 
     private static void writeServerResponse(SelectionKey key, String response, ByteBuffer buffer) {
         if(response != null) {
-            //serverResponse = serverResponse.replace("\r\n", "\\r\\n");
-            System.out.println("Server response "+ response);
+            System.out.println("=== DETAILED RESPONSE ANALYSIS ===");
+            System.out.println("Response string length: " + response.length());
+            System.out.println("Response as chars: " + response.replace("\r", "\\r").replace("\n", "\\n"));
+
+            // Show each byte value
+            byte[] responseBytes = response.getBytes();
+            System.out.print("Response bytes: [");
+            for (int i = 0; i < responseBytes.length; i++) {
+                System.out.print(responseBytes[i]);
+                if (i < responseBytes.length - 1) System.out.print(", ");
+            }
+            System.out.println("]");
+
             buffer.clear();
             buffer.put(response.getBytes());
             buffer.flip();
@@ -340,17 +573,88 @@ public class EventLoopServer {
     }
 
 
-    private static void handleWrite( SelectionKey key) throws IOException {
+    private static void handleWrite(SelectionKey key) throws IOException {
+        System.out.println("=== HANDLE WRITE WITH CONNECTION VALIDATION ===");
+
         SocketChannel channel = (SocketChannel) key.channel();
-        ByteBuffer byteBuffer = (ByteBuffer) key.attachment();
+        ByteBuffer buffer = (ByteBuffer) key.attachment();
 
-        channel.write(byteBuffer);
+        // Validate connection state before attempting write
+        System.out.println("Pre-write validation:");
+        System.out.println("  Channel open: " + channel.isOpen());
+        System.out.println("  Channel connected: " + channel.isConnected());
+        System.out.println("  Key valid: " + key.isValid());
+        System.out.println("  Remote address: " + channel.getRemoteAddress());
 
-        if(!byteBuffer.hasRemaining()){
-            byteBuffer.clear();
-            key.interestOps(SelectionKey.OP_READ);
+        if (!channel.isOpen() || !channel.isConnected()) {
+            System.err.println("ERROR: Attempting to write to closed/disconnected channel!");
+            key.cancel();
+            return;
         }
+
+        if (buffer == null || !buffer.hasRemaining()) {
+            System.err.println("ERROR: No data to write or buffer is null!");
+            key.interestOps(SelectionKey.OP_READ);
+            return;
+        }
+
+        try {
+            int bytesWritten = channel.write(buffer);
+            System.out.println("Successfully wrote " + bytesWritten + " bytes");
+
+            // Validate connection state after write
+            System.out.println("Post-write validation:");
+            System.out.println("  Channel still open: " + channel.isOpen());
+            System.out.println("  Channel still connected: " + channel.isConnected());
+
+            if (!buffer.hasRemaining()) {
+                System.out.println("All data written - returning to read mode");
+                buffer.clear();
+                key.interestOps(SelectionKey.OP_READ);
+            }
+
+        } catch (IOException e) {
+            System.err.println("IOException during write - connection likely closed by client");
+            System.err.println("Error: " + e.getMessage());
+
+            // Clean up the failed connection
+            handleClientDisconnection(key);
+            throw e;
+        }
+
+        System.out.println("=== HANDLE WRITE VALIDATION COMPLETE ===");
     }
 
+    private static RespParseResult parseOneRespCommand(String data){
+        if(data.isEmpty() || !data.startsWith("*")) return new RespParseResult(false, "");
+
+        try{
+            int firstCRLF = data.indexOf("\r\n");
+            if(firstCRLF == -1) return new RespParseResult(false, "");
+
+            int arrLen = Integer.parseInt(data.substring(1,firstCRLF));
+            int pos = firstCRLF +2;
+
+            for(int i = 0 ; i< arrLen; i++){
+                if(pos >= data.length() || data.charAt(pos) != '$'){
+                    return new RespParseResult(false, "");
+                }
+
+                int nextCRLF = data.indexOf("\r\n", pos);
+                if (nextCRLF == -1) return new RespParseResult(false, "");
+                int bulkLength = Integer.parseInt(data.substring(pos+1,nextCRLF));
+                pos = nextCRLF+2;
+
+                if(pos+bulkLength+2 > data.length()) return new RespParseResult(false, "");
+
+                pos += bulkLength+2;
+            }
+            return new RespParseResult(true, data.substring(0, pos));
+
+        } catch (Exception e) {
+            return new RespParseResult(false, "");
+        }
+
+    }
 
 }
