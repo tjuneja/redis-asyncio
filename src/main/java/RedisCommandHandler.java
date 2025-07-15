@@ -155,6 +155,4 @@ public class RedisCommandHandler {
         }
         return new SimpleString("OK");
     }
-
-
 }

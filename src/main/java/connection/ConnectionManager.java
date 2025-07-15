@@ -80,7 +80,7 @@ public class ConnectionManager {
         return info != null ? info.connectionType : ConnectionType.CLIENT;
     }
 
-    public SocketChannel getMasterConnection(){
+    public static SocketChannel getMasterConnection(){
         return masterConnection;
     }
 

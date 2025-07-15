@@ -38,6 +38,14 @@ public class CommandResponse {
         return this;
     }
 
+    public boolean hasResponse(){
+        return !this.parts.isEmpty();
+    }
+
+    public boolean hasResponses(){
+        return this.parts.size() > 1;
+    }
+
     public boolean isComplete() {
         return isComplete;
     }
