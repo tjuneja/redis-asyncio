@@ -126,6 +126,11 @@ public class CommandProcessor {
                 return CommandExecutionResult.handshakeResponse(response);
             }
 
+            if(connectionType == ConnectionManager.ConnectionType.MASTER && isReplConfGetAck(parsedCommands)){
+                CommandResponse response = RedisCommandHandler.executeCommand(parsedCommands);
+                return CommandExecutionResult.replConfGetAckResponse(response);
+            }
+
             if (connectionType == ConnectionManager.ConnectionType.MASTER){
                 RedisCommandHandler.executeCommand(parsedCommands);
                 return CommandExecutionResult.silentExecution();
@@ -140,6 +145,20 @@ public class CommandProcessor {
         }
     }
 
+    private boolean isReplConfGetAck(RedisObject parsedCommands) {
+        if(!(parsedCommands instanceof Array)) return false;
+
+        List<RedisObject> commands = ((Array)parsedCommands).getElements();
+
+        if(commands.isEmpty() || commands.size() < 2) return false;
+
+        String firstCommand = ((BulkString)commands.getFirst()).getValueAsString();
+        String secondCommand = ((BulkString)commands.get(1)).getValueAsString();
+
+        return "REPLCONF".equalsIgnoreCase(firstCommand) && "GETACK".equalsIgnoreCase(secondCommand);
+    }
+
+
     public static class CommandExecutionResult{
         private final CommandResponse response;
         private final boolean shouldPropogate;
@@ -150,7 +169,8 @@ public class CommandProcessor {
             CLIENT_RESPONSE,
             HANDSHAKE_RESPONSE,
             SILENT_EXECUTION,
-            ERROR_RESPONSE
+            ERROR_RESPONSE,
+            MASTER_GETACK_RESPONSE
         }
 
         private CommandExecutionResult(CommandResponse response, boolean shouldPropagate,
@@ -175,6 +195,10 @@ public class CommandProcessor {
 
         public static CommandExecutionResult errorResponse(CommandResponse response) {
             return new CommandExecutionResult(response, false, true, ExecutionType.ERROR_RESPONSE);
+        }
+
+        public static CommandExecutionResult replConfGetAckResponse(CommandResponse response) {
+            return new CommandExecutionResult(response, false, true, ExecutionType.MASTER_GETACK_RESPONSE);
         }
 
         // Getters

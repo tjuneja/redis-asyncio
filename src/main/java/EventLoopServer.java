@@ -854,19 +854,25 @@ public class EventLoopServer {
         buffer.get(data);
         connectionBuffer.appendData(data);
 
-
         String accumulatedData = connectionBuffer.getAccumulatedData();
+        System.out.println("=== PROCESSING READ DATA ===");
+        System.out.println("Channel: " + channel);
+        System.out.println("Connection type: " + ConnectionManager.getConnectionType(channel));
+        System.out.println("Data received: " + new String(data).replace("\r", "\\r").replace("\n", "\\n"));
 
         CommandProcessor.CommandProcessingResult result = this.commandProcessor.processCommands(accumulatedData, channel);
 
         if(result.totalConsumedBytes() > 0){
+            System.out.println("Consuming " + result.totalConsumedBytes() + " bytes from buffer");
             connectionBuffer.consumeData(result.totalConsumedBytes());
         }
 
         if(result.hasResponse()){
+            System.out.println("Queueing " + result.responses().size() + " response(s) for writing");
             responseWriter.queueResponses(key, result.responses());
+        } else {
+            System.out.println("No responses to send");
         }
-
     }
 
     private void handleAccept(SelectionKey key) throws IOException {
@@ -937,7 +943,21 @@ public class EventLoopServer {
 
     public static void main(String[] args) {
         try {
-            EventLoopServer server = getEventLoopServer(args);
+            CommandParser commandParser = new CommandParser(args);
+
+            ServerConfig config;
+            if (commandParser.isReplica()) {
+                config = new ServerConfig(
+                        commandParser.getPort(),
+                        commandParser.getMasterHost(),
+                        commandParser.getMasterPort()
+                );
+            } else {
+                int port = commandParser.getPort() != 0 ? commandParser.getPort() : DEFAULT_PORT;
+                config = new ServerConfig(port);
+            }
+
+            EventLoopServer server = new EventLoopServer(config);
 
             // Add shutdown hook for graceful shutdown
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -955,25 +975,6 @@ public class EventLoopServer {
             e.printStackTrace();
             System.exit(1);
         }
-    }
-
-    private static EventLoopServer getEventLoopServer(String[] args) {
-        CommandParser commandParser = new CommandParser(args);
-
-        ServerConfig config;
-        if (commandParser.isReplica()) {
-            config = new ServerConfig(
-                    commandParser.getPort(),
-                    commandParser.getMasterHost(),
-                    commandParser.getMasterPort()
-            );
-        } else {
-            int port = commandParser.getPort() != 0 ? commandParser.getPort() : DEFAULT_PORT;
-            config = new ServerConfig(port);
-        }
-
-        EventLoopServer server = new EventLoopServer(config);
-        return server;
     }
 
     private void stop() throws IOException {

@@ -7,8 +7,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class RedisStore {
-    private static Map<String,byte[]> dataStore = new ConcurrentHashMap<>();
-    private static Map<String,Long> expirationTimes = new ConcurrentHashMap<>();
+    private static final Map<String,byte[]> dataStore = new ConcurrentHashMap<>();
+    private static final Map<String,Long> expirationTimes = new ConcurrentHashMap<>();
 
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 

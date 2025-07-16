@@ -4,6 +4,7 @@ import objects.RedisObject;
 import objects.SimpleString;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -93,13 +94,44 @@ public class RedisCommandHandler {
         return response;
     }
 
-    private static RedisObject handleReplConf(List<RedisObject> redisObjects) {
-        String value = ((BulkString) redisObjects.getFirst()).getValueAsString();
-        if(value.equalsIgnoreCase("replconf")){
-            return new BulkString("OK".getBytes());
-        }else{
-            return new BulkString(null);
+    private static RedisObject handleReplConf(List<RedisObject> redisObjects) throws IOException {
+        if(redisObjects.size() < 2)  throw new IOException("REPLCONF requires a subcommand");
+
+        String subCommand = ((BulkString)redisObjects.get(1)).getValueAsString();
+        System.out.println("REPL Conf subcommand : "+ subCommand) ;
+        switch (subCommand){
+            case "GETACK" -> {
+                return creaReplConfAckRepsonse(0);
+            }
+
+            case "LISTENING-PORT" -> {
+                System.out.println("Handling REPLCONF LISTENING-PORT");
+                return new SimpleString("OK");
+            }
+
+            case "CAPA" -> {
+                System.out.println("Handling REPLCONF CAPA");
+                return new SimpleString("OK");
+            }
+
+            default -> {
+                System.out.println("Unknown REPLCONF subcommand: " + subCommand);
+                return new BulkString(null);
+            }
+
         }
+    }
+
+    private static RedisObject creaReplConfAckRepsonse(int idx) {
+        System.out.println("Creating REPLCONF ACK response with offset : "+idx);
+        List<RedisObject> response = Arrays.asList(
+                new BulkString("REPLCONF".getBytes()),
+                new BulkString("ACK".getBytes()),
+                new BulkString(String.valueOf(idx).getBytes())
+        );
+
+        return new Array(response);
+
     }
 
     private static RedisObject handleInfo(List<RedisObject> redisObjects) throws IOException {
