@@ -112,7 +112,7 @@ public class CommandProcessor {
 
         }
 
-        return null;
+        return resultBuilder.build();
     }
 
     public CommandExecutionResult processIndividualCommand(RedisObject parsedCommands, SocketChannel channel) {

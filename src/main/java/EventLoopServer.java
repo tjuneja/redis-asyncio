@@ -927,7 +927,7 @@ public class EventLoopServer {
         this.serverChannel = ServerSocketChannel.open();
         this.serverChannel.socket().bind(new InetSocketAddress(config.getPort()));
         this.serverChannel.socket().setReuseAddress(true);
-        this.serverChannel.configureBlocking(true);
+        this.serverChannel.configureBlocking(false);
     }
     private void setupSelector() throws IOException {
         selector = Selector.open();
@@ -937,21 +937,7 @@ public class EventLoopServer {
 
     public static void main(String[] args) {
         try {
-            CommandParser commandParser = new CommandParser(args);
-
-            ServerConfig config;
-            if (commandParser.isReplica()) {
-                config = new ServerConfig(
-                        commandParser.getPort(),
-                        commandParser.getMasterHost(),
-                        commandParser.getMasterPort()
-                );
-            } else {
-                int port = commandParser.getPort() != 0 ? commandParser.getPort() : DEFAULT_PORT;
-                config = new ServerConfig(port);
-            }
-
-            EventLoopServer server = new EventLoopServer(config);
+            EventLoopServer server = getEventLoopServer(args);
 
             // Add shutdown hook for graceful shutdown
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -969,6 +955,25 @@ public class EventLoopServer {
             e.printStackTrace();
             System.exit(1);
         }
+    }
+
+    private static EventLoopServer getEventLoopServer(String[] args) {
+        CommandParser commandParser = new CommandParser(args);
+
+        ServerConfig config;
+        if (commandParser.isReplica()) {
+            config = new ServerConfig(
+                    commandParser.getPort(),
+                    commandParser.getMasterHost(),
+                    commandParser.getMasterPort()
+            );
+        } else {
+            int port = commandParser.getPort() != 0 ? commandParser.getPort() : DEFAULT_PORT;
+            config = new ServerConfig(port);
+        }
+
+        EventLoopServer server = new EventLoopServer(config);
+        return server;
     }
 
     private void stop() throws IOException {
